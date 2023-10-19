@@ -1,4 +1,4 @@
-# GENEVAL: An Object-Focused Framework for Evaluating Text-to-Image Alignment
+# GenEval: An Object-Focused Framework for Evaluating Text-to-Image Alignment
 
 This repository contains code for the paper [GenEval: An Object-Focused Framework for Evaluating Text-to-Image Alignment](https://arxiv.org/abs/2310.11513) by Dhruba Ghosh, Hanna Hajishirzi, and Ludwig Schmidt.
 
