@@ -3,11 +3,11 @@ Evaluate generated images using Mask2Former (or other object detector model)
 """
 
 import argparse
-import glob
 import json
 import os
-import time
+import re
 import sys
+import time
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -24,16 +24,15 @@ zsc.tqdm = lambda it, *args, **kwargs: it
 
 # Get directory path
 
-parser = argparse.ArgumentParser()
-parser.add_argument("image_list", type=str)
-parser.add_argument("--metadata", type=str, required=True)
-parser.add_argument("--output", type=str, required=True)
-parser.add_argument("--append", action="store_true")
-parser.add_argument("--save", type=str, default=None)
-# Other arguments
-parser.add_argument("--options", nargs="*", type=str, default=[])
-args = parser.parse_args()
-args.options = dict(opt.split("=", 1) for opt in args.options)
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("imagedir", type=str)
+    parser.add_argument("--outfile", type=str, default="results.jsonl")
+    # Other arguments
+    parser.add_argument("--options", nargs="*", type=str, default=[])
+    args = parser.parse_args()
+    args.options = dict(opt.split("=", 1) for opt in args.options)
+    return args
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 assert DEVICE == "cuda"
@@ -50,46 +49,26 @@ def timed(fn):
 # Load models
 
 @timed
-def load_models():
+def load_models(args):
     OBJECT_DETECTOR = args.options.get('model', "mask2former")
     if OBJECT_DETECTOR == "mask2former":
         CONFIG_PATH = "/mmfs1/home/djghosh/code/diffeval/mmdetection/configs/mask2former/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco.py"
         CKPT_PATH = "/gscratch/efml/djghosh/diffusion/models/det/mask2former.pth"
-    elif OBJECT_DETECTOR == "yolox":
-        CONFIG_PATH = "/mmfs1/home/djghosh/code/diffeval/mmdetection/configs/yolox/yolox_x_8x8_300e_coco.py"
-        CKPT_PATH = "/gscratch/efml/djghosh/diffusion/models/det/yolox_x.pth"
+    # TODO
     object_detector = init_detector(CONFIG_PATH, CKPT_PATH, device=DEVICE)
 
     clip_arch = args.options.get('clip_model', "ViT-L-14")
     clip_model, _, transform = open_clip.create_model_and_transforms(clip_arch, pretrained="openai", device=DEVICE)
     tokenizer = open_clip.get_tokenizer(clip_arch)
 
-    with open("object_names.txt") as cls_file:
+    with open(os.path.join(os.path.dirname(__file__), "object_names.txt")) as cls_file:
         classnames = [line.strip() for line in cls_file]
 
     return object_detector, (clip_model, transform, tokenizer), classnames
 
+
 COLORS = ["red", "orange", "yellow", "green", "blue", "purple", "pink", "brown", "black", "white"]
 COLOR_CLASSIFIERS = {}
-
-THRESHOLD = float(args.options.get('threshold', 0.3))
-COUNTING_THRESHOLD = float(args.options.get('counting_threshold', THRESHOLD))
-MAX_OBJECTS = int(args.options.get('max_objects', 16))
-NMS_THRESHOLD = float(args.options.get('max_overlap', 1.0))
-POSITION_THRESHOLD = float(args.options.get('position_threshold', 0.1))
-
-
-def evaluation_info():
-    # Load metadata
-    with open(args.metadata) as fp:
-        metadata_list = fp.readlines()
-    # Iterate over evaluated prompts
-    df = pd.read_csv(args.image_list)
-    for _, row in df.iterrows():
-        metadata = json.loads(metadata_list[row['index']].strip())
-        image_paths = sorted(glob.glob(os.path.join(row['path'], "*.png")))
-        yield row['index'], image_paths, metadata
-
 
 # Evaluation parts
 
@@ -115,9 +94,9 @@ class ImageCrops(torch.utils.data.Dataset):
             image = self._image
         if args.options.get('crop', '1') == '1':
             image = image.crop(box[:4])
-        if args.save:
-            base_count = len(os.listdir(args.save))
-            image.save(os.path.join(args.save, f"cropped_{base_count:05}.png"))
+        # if args.save:
+        #     base_count = len(os.listdir(args.save))
+        #     image.save(os.path.join(args.save, f"cropped_{base_count:05}.png"))
         return (transform(image), 0)
 
 
@@ -137,8 +116,8 @@ def color_classification(image, bboxes, classname):
         ImageCrops(image, bboxes),
         batch_size=16, num_workers=4
     )
-    pred, _ = zsc.run_classification(clip_model, clf, dataloader, DEVICE)
     with torch.no_grad():
+        pred, _ = zsc.run_classification(clip_model, clf, dataloader, DEVICE)
         return [COLORS[index.item()] for index in pred.argmax(1)]
 
 
@@ -188,7 +167,7 @@ def evaluate(image, objects, metadata):
     for req in metadata.get('include', []):
         classname = req['class']
         matched = True
-        found_objects = objects[classname][:req['count']]
+        found_objects = objects.get(classname, [])[:req['count']]
         if len(found_objects) < req['count']:
             correct = matched = False
             reason.append(f"expected {classname}>={req['count']}, found {len(found_objects)}")
@@ -235,62 +214,76 @@ def evaluate(image, objects, metadata):
     return correct, "\n".join(reason)
 
 
-@timed
-def run_object_detector(object_detector, image_paths):
-    results = []
-    for filename in image_paths:
-        results.append(inference_detector(object_detector, filename))
-    return results
-
-
-@timed
-def evaluate_all_results(image_paths, detection_results, metadata):
-    full_results = []
-    for filename, result in zip(image_paths, detection_results):
-        bbox = result[0] if isinstance(result, tuple) else result
-        segm = result[1] if isinstance(result, tuple) and len(result) > 1 else None
-        image = ImageOps.exif_transpose(Image.open(filename))
-        detected = {}
-        # Determine bounding boxes to keep
-        confidence_threshold = THRESHOLD if metadata['tag'] != "counting" else COUNTING_THRESHOLD
-        for index, classname in enumerate(classnames):
-            ordering = np.argsort(bbox[index][:, 4])[::-1]
-            ordering = ordering[bbox[index][ordering, 4] > confidence_threshold] # Threshold
-            ordering = ordering[:MAX_OBJECTS].tolist() # Limit number of detected objects per class
-            detected[classname] = []
-            while ordering:
-                max_obj = ordering.pop(0)
-                detected[classname].append((bbox[index][max_obj], None if segm is None else segm[index][max_obj]))
-                ordering = [
-                    obj
-                    for obj in ordering
-                    if NMS_THRESHOLD == 1 or compute_iou(bbox[index][max_obj], bbox[index][obj]) < NMS_THRESHOLD
-                ]
-        # Evaluate
-        is_correct, reason = evaluate(image, detected, metadata)
-        full_results.append({
-            'filename': filename,
-            'tag': metadata['tag'],
-            'prompt': metadata['prompt'],
-            'correct': is_correct,
-            'reason': reason,
-            'metadata': json.dumps(metadata),
-            'details': json.dumps({
-                key: [box.tolist() for box, _ in value]
-                for key, value in detected.items()
-            })
+def evaluate_image(filepath, metadata):
+    result = inference_detector(object_detector, filepath)
+    bbox = result[0] if isinstance(result, tuple) else result
+    segm = result[1] if isinstance(result, tuple) and len(result) > 1 else None
+    image = ImageOps.exif_transpose(Image.open(filepath))
+    detected = {}
+    # Determine bounding boxes to keep
+    confidence_threshold = THRESHOLD if metadata['tag'] != "counting" else COUNTING_THRESHOLD
+    for index, classname in enumerate(classnames):
+        ordering = np.argsort(bbox[index][:, 4])[::-1]
+        ordering = ordering[bbox[index][ordering, 4] > confidence_threshold] # Threshold
+        ordering = ordering[:MAX_OBJECTS].tolist() # Limit number of detected objects per class
+        detected[classname] = []
+        while ordering:
+            max_obj = ordering.pop(0)
+            detected[classname].append((bbox[index][max_obj], None if segm is None else segm[index][max_obj]))
+            ordering = [
+                obj for obj in ordering
+                if NMS_THRESHOLD == 1 or compute_iou(bbox[index][max_obj], bbox[index][obj]) < NMS_THRESHOLD
+            ]
+        if not detected[classname]:
+            del detected[classname]
+    # Evaluate
+    is_correct, reason = evaluate(image, detected, metadata)
+    return {
+        'filename': filepath,
+        'tag': metadata['tag'],
+        'prompt': metadata['prompt'],
+        'correct': is_correct,
+        'reason': reason,
+        'metadata': json.dumps(metadata),
+        'details': json.dumps({
+            key: [box.tolist() for box, _ in value]
+            for key, value in detected.items()
         })
-    return full_results
+    }
 
 
-object_detector, (clip_model, transform, tokenizer), classnames = load_models()
+def main(args):
+    n_correct = n_total = 0
+    full_results = []
+    for subfolder in os.listdir(args.imagedir):
+        folderpath = os.path.join(args.imagedir, subfolder)
+        if not os.path.isdir(folderpath) or not subfolder.isdigit():
+            continue
+        with open(os.path.join(folderpath, "metadata.jsonl")) as fp:
+            metadata = json.load(fp)
+        # Evaluate each image
+        for imagename in os.listdir(os.path.join(folderpath, "samples")):
+            imagepath = os.path.join(folderpath, "samples", imagename)
+            if not os.path.isfile(imagepath) or not re.match(r"\d+\.png", imagename):
+                continue
+            result = evaluate_image(imagepath, metadata)
+            full_results.append(result)
+            n_correct += result['correct']
+            n_total += 1
+    print(f"GenEval score: {n_correct/n_total:.3f} ({n_correct} / {n_total})")
+    # Save results
+    os.makedirs(os.path.dirname(args.outfile), exist_ok=True)
+    with open(args.outfile, "w") as fp:
+        pd.DataFrame(full_results).to_json(fp, orient="records", lines=True)
+
 
 if __name__ == "__main__":
-    for index, image_paths, metadata in evaluation_info():
-        # Run detection
-        detection_results = run_object_detector(object_detector, image_paths)
-        # Run evaluation
-        all_results = evaluate_all_results(image_paths, detection_results, metadata)
-        df = pd.DataFrame(all_results)
-        with open(args.output.format(index), "a" if args.append else "w") as fp:
-            df.to_json(fp, orient="records", lines=True)
+    args = parse_args()
+    object_detector, (clip_model, transform, tokenizer), classnames = load_models(args)
+    THRESHOLD = float(args.options.get('threshold', 0.3))
+    COUNTING_THRESHOLD = float(args.options.get('counting_threshold', 0.9))
+    MAX_OBJECTS = int(args.options.get('max_objects', 16))
+    NMS_THRESHOLD = float(args.options.get('max_overlap', 1.0))
+    POSITION_THRESHOLD = float(args.options.get('position_threshold', 0.1))
+
+    main(args)

@@ -132,6 +132,7 @@ def generate_color_attribution_sample(rng: np.random.Generator):
         prompt=f"a photo of {with_article(colors[cidx_a])} {classnames[idx_a]} and {with_article(colors[cidx_b])} {classnames[idx_b]}"
     )
 
+
 # Generate evaluation suite
 
 def generate_suite(rng: np.random.Generator, n: int = 100, output_path: str = ""):
@@ -160,15 +161,13 @@ def generate_suite(rng: np.random.Generator, n: int = 100, output_path: str = ""
         if sample_text not in used_samples:
             unique_samples.append(sample)
             used_samples.add(sample_text)
+
     # Write to files
+    os.makedirs(output_path, exist_ok=True)
     with open(os.path.join(output_path, "generation_prompts.txt"), "w") as fp:
         for sample in unique_samples:
             print(sample['prompt'], file=fp)
-    # with open(os.path.join(output_path, "evaluation_metadata.yml"), "w") as fp:
-    #     # Human-readable
-    #     yaml.safe_dump(unique_samples, fp)
     with open(os.path.join(output_path, "evaluation_metadata.jsonl"), "w") as fp:
-        # Easier to parse
         for sample in unique_samples:
             print(json.dumps(sample), file=fp)
 
@@ -177,7 +176,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=43, help="generation seed (default: 43)")
     parser.add_argument("--num-prompts", "-n", type=int, default=100, help="number of prompts per task (default: 100)")
-    parser.add_argument("--output-path", "-o", type=str, default="", help="output folder for prompts and metadata")
+    parser.add_argument("--output-path", "-o", type=str, default="prompts", help="output folder for prompts and metadata (default: 'prompts/')")
     args = parser.parse_args()
     rng = np.random.default_rng(args.seed)
     generate_suite(rng, args.num_prompts, args.output_path)
