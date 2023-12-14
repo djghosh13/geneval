@@ -1,4 +1,4 @@
-name: diffe2
+name: geneval
 channels:
   - pytorch
   - nvidia/label/cuda-11.3.0
@@ -247,4 +247,3 @@ dependencies:
     - yapf==0.33.0
     - yarl==1.9.2
     - zipp==3.15.0
-prefix: /gscratch/efml/djghosh/miniconda3/envs/diffe2

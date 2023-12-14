@@ -33,4 +33,61 @@ IF-XL | **0.61** | 0.97 | 0.74 | 0.66 | 0.81 | 0.13 | 0.35 |
 
 ## Code
 
-(Coming soon)
+### Setup
+
+```bash
+git clone https://github.com/djghosh13/geneval.git
+cd geneval
+conda create -f environment.yml
+conda activate geneval
+./evaluation/download_models.sh "<OBJECT_DETECTOR_FOLDER>/"
+```
+
+The original GenEval prompts from the paper are already in `prompts/`, but you can sample new prompts with different random seeds using
+```bash
+python prompts/create_prompts.py --seed <SEED> -n <NUM_PROMPTS> -o "<PROMPT_FOLDER>/"
+```
+
+### Image generation
+
+Sample image generation code for Stable Diffusion models is given in `generation/diffusers_generate.py`. Run
+```bash
+python generation/diffusers_generate.py \
+    "<PROMPT_FOLDER>/evaluation_metadata.jsonl" \
+    --model "runwayml/stable-diffusion-v1-5" \
+    --outdir "<IMAGE_FOLDER>"
+```
+to generate 4 images per prompt using Stable Diffusion v1.5 and save in `<IMAGE_FOLDER>`.
+
+The generated format should be
+```
+<IMAGE_FOLDER>/
+    00000/
+        metadata.jsonl
+        grid.png
+        samples/
+            0000.png
+            0001.png
+            0002.png
+            0003.png
+    00001/
+        ...
+```
+where `metadata.jsonl` contains the `N`-th line from `evaluation_metadata.jsonl`. `grid.png` is optional here.
+
+### Evaluation
+
+```bash
+python evaluation/evaluate_images.py \
+    "<IMAGE_FOLDER>" \
+    --outfile "<RESULTS_FOLDER>/results.jsonl" \
+    --model-path "<OBJECT_DETECTOR_FOLDER>"
+```
+
+This will result in a JSONL file with each line corresponding to an image. In particular, each line has a `correct` key and a `reason` key specifying whether the generated image was deemed correct and, if applicable, why it was marked incorrect. You can run
+
+```bash
+python evaluation/summary_scores.py "<RESULTS_FOLDER>/results.jsonl"
+```
+
+to get the score across each task, and the overall GenEval score.

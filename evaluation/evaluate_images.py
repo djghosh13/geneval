@@ -259,7 +259,6 @@ def evaluate_image(filepath, metadata):
 
 
 def main(args):
-    n_correct = n_total = 0
     full_results = []
     for subfolder in os.listdir(args.imagedir):
         folderpath = os.path.join(args.imagedir, subfolder)
@@ -274,9 +273,6 @@ def main(args):
                 continue
             result = evaluate_image(imagepath, metadata)
             full_results.append(result)
-            n_correct += result['correct']
-            n_total += 1
-    print(f"GenEval score: {n_correct/n_total:.3f} ({n_correct} / {n_total})")
     # Save results
     if os.path.dirname(args.outfile):
         os.makedirs(os.path.dirname(args.outfile), exist_ok=True)
