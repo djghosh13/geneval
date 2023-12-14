@@ -1,9 +1,11 @@
 # Get results of evaluation
 
 import argparse
+import os
 
 import numpy as np
 import pandas as pd
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("filename", type=str)
@@ -11,7 +13,7 @@ args = parser.parse_args()
 
 # Load classnames
 
-with open("object_names.txt") as cls_file:
+with open(os.path.join(os.path.dirname(__file__), "object_names.txt")) as cls_file:
     classnames = [line.strip() for line in cls_file]
     cls_to_idx = {"_".join(cls.split()):idx for idx, cls in enumerate(classnames)}
 

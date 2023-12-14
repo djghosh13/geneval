@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image, ImageOps
 import torch
+import mmdet
 from mmdet.apis import inference_detector, init_detector
 
 import open_clip
@@ -28,10 +29,17 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("imagedir", type=str)
     parser.add_argument("--outfile", type=str, default="results.jsonl")
+    parser.add_argument("--model-config", type=str, default=None)
+    parser.add_argument("--model-path", type=str, default="./")
     # Other arguments
     parser.add_argument("--options", nargs="*", type=str, default=[])
     args = parser.parse_args()
     args.options = dict(opt.split("=", 1) for opt in args.options)
+    if args.model_config is None:
+        args.model_config = os.path.join(
+            os.path.dirname(mmdet.__file__),
+            "../configs/mask2former/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco.py"
+        )
     return args
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -50,11 +58,9 @@ def timed(fn):
 
 @timed
 def load_models(args):
-    OBJECT_DETECTOR = args.options.get('model', "mask2former")
-    if OBJECT_DETECTOR == "mask2former":
-        CONFIG_PATH = "/mmfs1/home/djghosh/code/diffeval/mmdetection/configs/mask2former/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco.py"
-        CKPT_PATH = "/gscratch/efml/djghosh/diffusion/models/det/mask2former.pth"
-    # TODO
+    CONFIG_PATH = args.model_config
+    OBJECT_DETECTOR = args.options.get('model', "mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco")
+    CKPT_PATH = os.path.join(args.model_path, f"{OBJECT_DETECTOR}.pth")
     object_detector = init_detector(CONFIG_PATH, CKPT_PATH, device=DEVICE)
 
     clip_arch = args.options.get('clip_model', "ViT-L-14")
@@ -208,7 +214,7 @@ def evaluate(image, objects, metadata):
     # Check for non-expected objects
     for req in metadata.get('exclude', []):
         classname = req['class']
-        if len(objects[classname]) >= req['count']:
+        if len(objects.get(classname, [])) >= req['count']:
             correct = False
             reason.append(f"expected {classname}<{req['count']}, found {len(objects[classname])}")
     return correct, "\n".join(reason)
@@ -272,7 +278,8 @@ def main(args):
             n_total += 1
     print(f"GenEval score: {n_correct/n_total:.3f} ({n_correct} / {n_total})")
     # Save results
-    os.makedirs(os.path.dirname(args.outfile), exist_ok=True)
+    if os.path.dirname(args.outfile):
+        os.makedirs(os.path.dirname(args.outfile), exist_ok=True)
     with open(args.outfile, "w") as fp:
         pd.DataFrame(full_results).to_json(fp, orient="records", lines=True)
 
