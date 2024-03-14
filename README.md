@@ -35,11 +35,13 @@ IF-XL | **0.61** | 0.97 | 0.74 | 0.66 | 0.81 | 0.13 | 0.35 |
 
 ### Setup
 
+Install the dependencies, including `mmdet`, and download the Mask2Former object detector:
 ```bash
 git clone https://github.com/djghosh13/geneval.git
 cd geneval
 conda create -f environment.yml
 conda activate geneval
+mim install mmdet==2.27.0
 ./evaluation/download_models.sh "<OBJECT_DETECTOR_FOLDER>/"
 ```
 
