@@ -41,8 +41,11 @@ git clone https://github.com/djghosh13/geneval.git
 cd geneval
 conda env create -f environment.yml
 conda activate geneval
-mim install mmdet==2.27.0
 ./evaluation/download_models.sh "<OBJECT_DETECTOR_FOLDER>/"
+
+git clone https://github.com/open-mmlab/mmdetection.git
+cd mmdetection; git checkout 2.x
+pip install -v -e .
 ```
 
 The original GenEval prompts from the paper are already in `prompts/`, but you can sample new prompts with different random seeds using
