@@ -40,11 +40,19 @@ Install the dependencies, including `mmdet`, and download the Mask2Former object
 git clone https://github.com/djghosh13/geneval.git
 cd geneval
 conda env create -f environment.yml
+```
+> Jeff: The env creation breaks on incompatible dependency versions and dependencies which should be pulled down from the image (e.g. all things CUDA).
+```
 conda activate geneval
 ./evaluation/download_models.sh "<OBJECT_DETECTOR_FOLDER>/"
-
+```
+> Jeff: Running local object detection models shouldn't be necessary and complicates setup.
+```
 git clone https://github.com/open-mmlab/mmdetection.git
 cd mmdetection; git checkout 2.x
+```
+> Jeff: this shouldn't be necessary. It's a published lib. [mmdet](https://pypi.org/project/mmdet/)
+```
 pip install -v -e .
 ```
 
@@ -79,6 +87,8 @@ The generated format should be
         ...
 ```
 where `metadata.jsonl` contains the `N`-th line from `evaluation_metadata.jsonl`. `grid.png` is optional here.
+
+> Jeff: If we can get our existing benchmark jobs to output this folder structure, then we should be able to pick up the evaluation capabilities we need downstream. Just need this prompt to image linkage in the file structure.
 
 ### Evaluation
 
