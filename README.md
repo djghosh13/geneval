@@ -59,7 +59,7 @@ Sample image generation code for Stable Diffusion models is given in `generation
 ```bash
 python generation/diffusers_generate.py \
     "<PROMPT_FOLDER>/evaluation_metadata.jsonl" \
-    --model "runwayml/stable-diffusion-v1-5" \
+    --model "stable-diffusion-v1-5/stable-diffusion-v1-5" \
     --outdir "<IMAGE_FOLDER>"
 ```
 to generate 4 images per prompt using Stable Diffusion v1.5 and save in `<IMAGE_FOLDER>`.
