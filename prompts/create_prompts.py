@@ -11,7 +11,7 @@ import numpy as np
 
 # Load classnames
 
-with open("object_names.txt") as cls_file:
+with open("prompts/object_names.txt") as cls_file:
     classnames = [line.strip() for line in cls_file]
 
 # Proper a vs an
